@@ -19,6 +19,10 @@ app.get("/", (_req, res) => {
   res.json({ message: "Real Estate ERP API is running" });
 });
 
+app.get("/api", (_req, res) => {
+  res.json({ message: "API root is running" });
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/clients", clientRoutes);
