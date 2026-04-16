@@ -65,6 +65,9 @@ router.post("/", protect, async (req, res, next) => {
 
     return res.status(201).json(property);
   } catch (error) {
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
     return next(error);
   }
 });
@@ -100,6 +103,9 @@ router.put("/:id", protect, async (req, res, next) => {
       .populate("interestedBuyers", "name contactNo type budget_npr");
     return res.json(updated);
   } catch (error) {
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
     return next(error);
   }
 });
