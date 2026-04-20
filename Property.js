@@ -50,16 +50,16 @@ const propertySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-propertySchema.pre("validate", async function assignPropertyId(next) {
+propertySchema.pre("validate", async function assignPropertyId() {
   const municipality = this.locationType?.municipality?.trim();
   const vdc = this.locationType?.vdc?.trim();
   if (!municipality && !vdc) {
     this.invalidate("locationType.municipality", "Either Municipality or VDC/Gaupalika is required");
     this.invalidate("locationType.vdc", "Either Municipality or VDC/Gaupalika is required");
-    return next();
+    return;
   }
 
-  if (!this.isNew || this.propertyId) return next();
+  if (!this.isNew || this.propertyId) return;
 
   const year = this.createdAt ? new Date(this.createdAt).getFullYear() : new Date().getFullYear();
   const prefix = String(year % 1000).padStart(3, "0");
@@ -71,7 +71,6 @@ propertySchema.pre("validate", async function assignPropertyId(next) {
   );
 
   this.propertyId = `${prefix}-${String(counter.seq).padStart(3, "0")}`;
-  return next();
 });
 
 module.exports = mongoose.model("Property", propertySchema);
