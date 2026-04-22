@@ -6,7 +6,18 @@ const clientSchema = new mongoose.Schema(
     contactNo: { type: String, required: true, trim: true },
     email: { type: String, default: "", trim: true, lowercase: true },
     type: { type: String, enum: ["Buyer", "Seller", "Both"], required: true },
+    propertyType: { type: String, enum: ["Land", "House", "Apartment", "Commercial", "Other"], default: "Other" },
     address: { type: String, default: "" },
+    locationType: {
+      country: { type: String, default: "Nepal" },
+      province: {
+        type: String,
+        enum: ["Koshi", "Madhesh", "Bagmati", "Gandaki", "Lumbini", "Karnali", "Sudurpashchim"],
+      },
+      district: { type: String, default: "" },
+      municipality: { type: String, default: "" },
+      vdc: { type: String, default: "" },
+    },
     source: {
       type: String,
       enum: ["Facebook", "Instagram", "WhatsApp", "Phone Call", "Walk-in", "Referral", "Other"],

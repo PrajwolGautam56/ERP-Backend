@@ -17,6 +17,62 @@ const uploadBufferToCloudinary = (buffer, options = {}) =>
     stream.end(buffer);
   });
 
+const ensureManualSellerClient = async ({ req, sellerInfo = {}, locationType = {}, address = "" }) => {
+  if (sellerInfo.sellerType !== "manual") return sellerInfo;
+  const manualSellerName = (sellerInfo.manualSellerName || "").trim();
+  const manualSellerContact = (sellerInfo.manualSellerContact || "").trim();
+  if (!manualSellerName || !manualSellerContact) return sellerInfo;
+
+  let sellerClient = await Client.findOne({ contactNo: manualSellerContact });
+  if (!sellerClient) {
+    sellerClient = await Client.create({
+      name: manualSellerName,
+      contactNo: manualSellerContact,
+      type: "Seller",
+      propertyType: "Other",
+      address: address || "",
+      locationType: {
+        country: "Nepal",
+        province: locationType.province || "",
+        district: locationType.district || "",
+        municipality: locationType.municipality || "",
+        vdc: locationType.vdc || "",
+      },
+      source: "Other",
+      status: "Property Added/Requirement Taken",
+      assignedAgent: req.body.assignedAgent || req.user._id,
+      createdBy: req.user._id,
+      notes: "Auto-created from property manual seller details",
+      remarks: "",
+      budget_npr: 0,
+      location_preference: "",
+    });
+  } else {
+    const updates = {
+      name: sellerClient.name || manualSellerName,
+      type: sellerClient.type === "Buyer" ? "Both" : sellerClient.type || "Seller",
+      address: sellerClient.address || address || "",
+      locationType: {
+        country: "Nepal",
+        province: sellerClient.locationType?.province || locationType.province || "",
+        district: sellerClient.locationType?.district || locationType.district || "",
+        municipality: sellerClient.locationType?.municipality || locationType.municipality || "",
+        vdc: sellerClient.locationType?.vdc || locationType.vdc || "",
+      },
+    };
+    Object.assign(sellerClient, updates);
+    await sellerClient.save();
+  }
+
+  return {
+    ...sellerInfo,
+    sellerType: "linked",
+    linkedSeller: sellerClient._id,
+    manualSellerName,
+    manualSellerContact,
+  };
+};
+
 router.get("/", protect, async (req, res, next) => {
   try {
     const { province, district, municipality, vdc, propertyType, status, assignedAgent, propertyId, search } = req.query;
@@ -55,8 +111,16 @@ router.post("/", protect, async (req, res, next) => {
       return res.status(400).json({ message: "Name and address are required" });
     }
 
+    const linkedSellerInfo = await ensureManualSellerClient({
+      req,
+      sellerInfo: req.body.sellerInfo || {},
+      locationType: req.body.locationType || {},
+      address: req.body.address || "",
+    });
+
     const payload = {
       ...req.body,
+      sellerInfo: linkedSellerInfo,
       price_npr: Number(req.body.price_npr || 0),
       assignedAgent: req.body.assignedAgent || req.user._id,
       createdBy: req.user._id,
@@ -91,8 +155,16 @@ router.put("/:id", protect, async (req, res, next) => {
   try {
     const property = await Property.findById(req.params.id);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    const linkedSellerInfo = await ensureManualSellerClient({
+      req,
+      sellerInfo: req.body.sellerInfo || {},
+      locationType: req.body.locationType || {},
+      address: req.body.address || property.address || "",
+    });
+
     Object.assign(property, {
       ...req.body,
+      sellerInfo: linkedSellerInfo,
       price_npr: Number(req.body.price_npr || 0),
       assignedAgent: req.body.assignedAgent || property.assignedAgent,
     });
