@@ -6,6 +6,12 @@ const { protect, adminOnly } = require("./authMiddleware");
 
 const router = express.Router();
 
+const isAdmin = (user) => user?.role === "admin";
+
+function escapeRegex(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function parseOptionalNumber(val) {
   if (val === undefined || val === null || val === "") return null;
   const n = Number(val);
@@ -81,6 +87,90 @@ router.post("/", protect, async (req, res, next) => {
     const client = await Client.create(payload);
     const populated = await Client.findById(client._id).populate("assignedAgent", "name email role");
     return res.status(201).json(populated);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/** Suggested listings for a buyer: matches budget (price ≤ budget × 1.15) + location preference tokens & client location fields. */
+router.get("/:id/suggested-properties", protect, async (req, res, next) => {
+  try {
+    const client = await Client.findById(req.params.id);
+    if (!client) return res.status(404).json({ message: "Client not found" });
+    if (!["Buyer", "Both"].includes(client.type)) {
+      return res.json([]);
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 50);
+    const excludeIds = (client.interestedProperties || []).filter(Boolean);
+
+    const query = {};
+    if (excludeIds.length) query._id = { $nin: excludeIds };
+    if (!isAdmin(req.user)) query.assignedAgent = req.user._id;
+
+    const budget = Number(client.budget_npr) || 0;
+    const andParts = [];
+
+    if (budget > 0) {
+      andParts.push({ price_npr: { $lte: Math.ceil(budget * 1.15) } });
+    }
+
+    const locOr = [];
+    const pref = (client.location_preference || "").trim();
+    if (pref) {
+      const tokens = pref
+        .split(/[,;\n]+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 2);
+      const seen = new Set();
+      for (const token of tokens) {
+        const key = token.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const safe = escapeRegex(token);
+        locOr.push(
+          { address: { $regex: safe, $options: "i" } },
+          { exactLocation: { $regex: safe, $options: "i" } },
+          { name: { $regex: safe, $options: "i" } },
+          { "locationType.province": { $regex: safe, $options: "i" } },
+          { "locationType.district": { $regex: safe, $options: "i" } },
+          { "locationType.municipality": { $regex: safe, $options: "i" } },
+          { "locationType.vdc": { $regex: safe, $options: "i" } }
+        );
+      }
+    }
+
+    const lt = client.locationType || {};
+    if (lt.province) locOr.push({ "locationType.province": lt.province });
+    if (lt.district) locOr.push({ "locationType.district": lt.district });
+    if (lt.municipality) locOr.push({ "locationType.municipality": lt.municipality });
+    if (lt.vdc) locOr.push({ "locationType.vdc": lt.vdc });
+
+    if (locOr.length) {
+      andParts.push({ $or: locOr });
+    }
+
+    if (andParts.length) query.$and = andParts;
+
+    let properties = await Property.find(query)
+      .populate("assignedAgent", "name email role")
+      .sort({ createdAt: -1 })
+      .limit(limit);
+
+    if (!properties.length) {
+      const fallback = {};
+      if (excludeIds.length) fallback._id = { $nin: excludeIds };
+      if (!isAdmin(req.user)) fallback.assignedAgent = req.user._id;
+      const fbAnd = [];
+      if (budget > 0) fbAnd.push({ price_npr: { $lte: Math.ceil(budget * 1.15) } });
+      if (fbAnd.length) fallback.$and = fbAnd;
+      properties = await Property.find(fallback)
+        .populate("assignedAgent", "name email role")
+        .sort({ createdAt: -1 })
+        .limit(limit);
+    }
+
+    return res.json(properties);
   } catch (error) {
     return next(error);
   }
