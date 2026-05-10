@@ -7,6 +7,14 @@ const { cloudinary } = require("./cloudinary");
 
 const router = express.Router();
 const uploadMemory = multer({ storage: multer.memoryStorage() });
+const isAdmin = (user) => user?.role === "admin";
+const isAssignedAgent = (property, user) => String(property?.assignedAgent) === String(user?._id);
+
+function parseOptionalNumber(val) {
+  if (val === undefined || val === null || val === "") return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
 
 const uploadBufferToCloudinary = (buffer, options = {}) =>
   new Promise((resolve, reject) => {
@@ -75,7 +83,7 @@ const ensureManualSellerClient = async ({ req, sellerInfo = {}, locationType = {
 
 router.get("/", protect, async (req, res, next) => {
   try {
-    const { province, district, municipality, vdc, propertyType, status, assignedAgent, propertyId, search } = req.query;
+    const { province, district, municipality, vdc, propertyType, status, assignedAgent, propertyId, search, minPrice, maxPrice } = req.query;
     const query = {};
     if (province) query["locationType.province"] = province;
     if (district) query["locationType.district"] = district;
@@ -83,14 +91,31 @@ router.get("/", protect, async (req, res, next) => {
     if (vdc) query["locationType.vdc"] = vdc;
     if (propertyType) query.propertyType = propertyType;
     if (status) query.status = status;
-    if (assignedAgent) query.assignedAgent = assignedAgent;
+    if (assignedAgent && isAdmin(req.user)) query.assignedAgent = assignedAgent;
     if (propertyId) query.propertyId = { $regex: propertyId, $options: "i" };
     if (search) {
+      const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$or = [
-        { propertyId: { $regex: search, $options: "i" } },
-        { name: { $regex: search, $options: "i" } },
-        { address: { $regex: search, $options: "i" } },
+        { propertyId: { $regex: safe, $options: "i" } },
+        { name: { $regex: safe, $options: "i" } },
+        { address: { $regex: safe, $options: "i" } },
+        { exactLocation: { $regex: safe, $options: "i" } },
+        { propertyDetails: { $regex: safe, $options: "i" } },
+        { "locationType.province": { $regex: safe, $options: "i" } },
+        { "locationType.district": { $regex: safe, $options: "i" } },
+        { "locationType.municipality": { $regex: safe, $options: "i" } },
+        { "locationType.vdc": { $regex: safe, $options: "i" } },
       ];
+    }
+    const minP = parseOptionalNumber(minPrice);
+    const maxP = parseOptionalNumber(maxPrice);
+    if (minP !== null || maxP !== null) {
+      query.price_npr = {};
+      if (minP !== null) query.price_npr.$gte = minP;
+      if (maxP !== null) query.price_npr.$lte = maxP;
+    }
+    if (!isAdmin(req.user)) {
+      query.assignedAgent = req.user._id;
     }
 
     const properties = await Property.find(query)
@@ -122,7 +147,7 @@ router.post("/", protect, async (req, res, next) => {
       ...req.body,
       sellerInfo: linkedSellerInfo,
       price_npr: Number(req.body.price_npr || 0),
-      assignedAgent: req.body.assignedAgent || req.user._id,
+      assignedAgent: isAdmin(req.user) ? req.body.assignedAgent || req.user._id : req.user._id,
       createdBy: req.user._id,
     };
     const property = await Property.create(payload);
@@ -140,6 +165,9 @@ router.get("/:id", protect, async (req, res, next) => {
   try {
     const property = await Property.findById(req.params.id);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     const populated = await Property.findById(property._id)
       .populate("createdBy", "name email role")
       .populate("assignedAgent", "name email role")
@@ -155,6 +183,9 @@ router.put("/:id", protect, async (req, res, next) => {
   try {
     const property = await Property.findById(req.params.id);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     const linkedSellerInfo = await ensureManualSellerClient({
       req,
       sellerInfo: req.body.sellerInfo || {},
@@ -166,7 +197,7 @@ router.put("/:id", protect, async (req, res, next) => {
       ...req.body,
       sellerInfo: linkedSellerInfo,
       price_npr: Number(req.body.price_npr || 0),
-      assignedAgent: req.body.assignedAgent || property.assignedAgent,
+      assignedAgent: isAdmin(req.user) ? req.body.assignedAgent || property.assignedAgent : property.assignedAgent,
     });
     await property.save();
     const updated = await Property.findById(property._id)
@@ -187,6 +218,9 @@ router.post("/:id/interested/:clientId", protect, async (req, res, next) => {
     const { id, clientId } = req.params;
     const [property, client] = await Promise.all([Property.findById(id), Client.findById(clientId)]);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     if (!client) return res.status(404).json({ message: "Client not found" });
     if (!["Buyer", "Both"].includes(client.type)) {
       return res.status(400).json({ message: "Only Buyer or Both clients can be linked as interested buyers" });
@@ -212,6 +246,9 @@ router.delete("/:id/interested/:clientId", protect, async (req, res, next) => {
     const { id, clientId } = req.params;
     const [property, client] = await Promise.all([Property.findById(id), Client.findById(clientId)]);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     if (!client) return res.status(404).json({ message: "Client not found" });
 
     property.interestedBuyers = property.interestedBuyers.filter((buyerId) => String(buyerId) !== String(client._id));
@@ -240,6 +277,9 @@ router.post("/:id/images", protect, uploadMemory.array("images", 10), async (req
   try {
     const property = await Property.findById(req.params.id);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     if (!req.files?.length) return res.status(400).json({ message: "No images uploaded" });
 
     const uploads = await Promise.all(
@@ -262,6 +302,9 @@ router.post("/:id/documents", protect, uploadMemory.single("document"), async (r
   try {
     const property = await Property.findById(req.params.id);
     if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
     if (!req.file) return res.status(400).json({ message: "No document uploaded" });
     const name = req.body.name || req.file.originalname;
 

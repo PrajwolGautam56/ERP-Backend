@@ -6,9 +6,15 @@ const { protect, adminOnly } = require("./authMiddleware");
 
 const router = express.Router();
 
+function parseOptionalNumber(val) {
+  if (val === undefined || val === null || val === "") return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
 router.get("/", protect, async (req, res, next) => {
   try {
-    const { type, status, source, assignedAgent, search } = req.query;
+    const { type, status, source, assignedAgent, search, minBudget, maxBudget } = req.query;
     const query = {};
 
     if (type) query.type = type;
@@ -16,10 +22,26 @@ router.get("/", protect, async (req, res, next) => {
     if (source) query.source = source;
     if (assignedAgent && mongoose.Types.ObjectId.isValid(assignedAgent)) query.assignedAgent = assignedAgent;
     if (search) {
+      const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { contactNo: { $regex: search, $options: "i" } },
+        { name: { $regex: safe, $options: "i" } },
+        { contactNo: { $regex: safe, $options: "i" } },
+        { email: { $regex: safe, $options: "i" } },
+        { address: { $regex: safe, $options: "i" } },
+        { location_preference: { $regex: safe, $options: "i" } },
+        { notes: { $regex: safe, $options: "i" } },
+        { "locationType.province": { $regex: safe, $options: "i" } },
+        { "locationType.district": { $regex: safe, $options: "i" } },
+        { "locationType.municipality": { $regex: safe, $options: "i" } },
+        { "locationType.vdc": { $regex: safe, $options: "i" } },
       ];
+    }
+    const minB = parseOptionalNumber(minBudget);
+    const maxB = parseOptionalNumber(maxBudget);
+    if (minB !== null || maxB !== null) {
+      query.budget_npr = {};
+      if (minB !== null) query.budget_npr.$gte = minB;
+      if (maxB !== null) query.budget_npr.$lte = maxB;
     }
 
     const clients = await Client.find(query)
