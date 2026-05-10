@@ -14,13 +14,29 @@ function parseOptionalNumber(val) {
 
 router.get("/", protect, async (req, res, next) => {
   try {
-    const { type, status, source, assignedAgent, search, minBudget, maxBudget } = req.query;
+    const {
+      type,
+      status,
+      source,
+      assignedAgent,
+      search,
+      minBudget,
+      maxBudget,
+      province,
+      district,
+      municipality,
+      vdc,
+    } = req.query;
     const query = {};
 
     if (type) query.type = type;
     if (status) query.status = status;
     if (source) query.source = source;
     if (assignedAgent && mongoose.Types.ObjectId.isValid(assignedAgent)) query.assignedAgent = assignedAgent;
+    if (province) query["locationType.province"] = province;
+    if (district) query["locationType.district"] = district;
+    if (municipality) query["locationType.municipality"] = municipality;
+    if (vdc) query["locationType.vdc"] = vdc;
     if (search) {
       const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$or = [
