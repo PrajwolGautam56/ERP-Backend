@@ -32,11 +32,24 @@ router.get("/", protect, async (req, res, next) => {
       district,
       municipality,
       vdc,
+      hot,
     } = req.query;
     const query = {};
+    const andParts = [];
 
-    if (type) query.type = type;
-    if (status) query.status = status;
+    const isHot = hot === "1" || hot === "true";
+    if (isHot) {
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      andParts.push({
+        type: { $in: ["Buyer", "Both"] },
+        status: { $in: ["FB Lead", "Intake"] },
+        updatedAt: { $lte: threeDaysAgo },
+      });
+    } else {
+      if (type) query.type = type;
+      if (status) query.status = status;
+    }
+
     if (source) query.source = source;
     if (assignedAgent && mongoose.Types.ObjectId.isValid(assignedAgent)) query.assignedAgent = assignedAgent;
     if (province) query["locationType.province"] = province;
@@ -44,19 +57,21 @@ router.get("/", protect, async (req, res, next) => {
     if (municipality) query["locationType.municipality"] = municipality;
     if (vdc) query["locationType.vdc"] = vdc;
     if (search) {
-      const safe = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      query.$or = [
-        { name: { $regex: safe, $options: "i" } },
-        { contactNo: { $regex: safe, $options: "i" } },
-        { email: { $regex: safe, $options: "i" } },
-        { address: { $regex: safe, $options: "i" } },
-        { location_preference: { $regex: safe, $options: "i" } },
-        { notes: { $regex: safe, $options: "i" } },
-        { "locationType.province": { $regex: safe, $options: "i" } },
-        { "locationType.district": { $regex: safe, $options: "i" } },
-        { "locationType.municipality": { $regex: safe, $options: "i" } },
-        { "locationType.vdc": { $regex: safe, $options: "i" } },
-      ];
+      const safe = escapeRegex(search);
+      andParts.push({
+        $or: [
+          { name: { $regex: safe, $options: "i" } },
+          { contactNo: { $regex: safe, $options: "i" } },
+          { email: { $regex: safe, $options: "i" } },
+          { address: { $regex: safe, $options: "i" } },
+          { location_preference: { $regex: safe, $options: "i" } },
+          { notes: { $regex: safe, $options: "i" } },
+          { "locationType.province": { $regex: safe, $options: "i" } },
+          { "locationType.district": { $regex: safe, $options: "i" } },
+          { "locationType.municipality": { $regex: safe, $options: "i" } },
+          { "locationType.vdc": { $regex: safe, $options: "i" } },
+        ],
+      });
     }
     const minB = parseOptionalNumber(minBudget);
     const maxB = parseOptionalNumber(maxBudget);
@@ -64,6 +79,10 @@ router.get("/", protect, async (req, res, next) => {
       query.budget_npr = {};
       if (minB !== null) query.budget_npr.$gte = minB;
       if (maxB !== null) query.budget_npr.$lte = maxB;
+    }
+
+    if (andParts.length) {
+      query.$and = [...(query.$and || []), ...andParts];
     }
 
     const clients = await Client.find(query)
