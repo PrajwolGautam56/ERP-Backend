@@ -39,16 +39,10 @@ router.get("/", protect, async (req, res, next) => {
 
     const isHot = hot === "1" || hot === "true";
     if (isHot) {
-      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-      andParts.push({
-        type: { $in: ["Buyer", "Both"] },
-        status: { $in: ["FB Lead", "Intake"] },
-        updatedAt: { $lte: threeDaysAgo },
-      });
-    } else {
-      if (type) query.type = type;
-      if (status) query.status = status;
+      query.isHotBuyer = true;
     }
+    if (type) query.type = type;
+    if (status) query.status = status;
 
     if (source) query.source = source;
     if (assignedAgent && mongoose.Types.ObjectId.isValid(assignedAgent)) query.assignedAgent = assignedAgent;
@@ -112,6 +106,23 @@ router.post("/", protect, async (req, res, next) => {
 });
 
 /** Suggested listings for a buyer: matches budget (price ≤ budget × 1.15) + location preference tokens & client location fields. */
+router.patch("/:id/hot-buyer", protect, async (req, res, next) => {
+  try {
+    const client = await Client.findById(req.params.id);
+    if (!client) return res.status(404).json({ message: "Client not found" });
+    if (!["Buyer", "Both"].includes(client.type)) {
+      return res.status(400).json({ message: "Only Buyer or Both clients can be marked as hot buyers" });
+    }
+    const markHot = req.body.isHotBuyer === true || req.body.isHotBuyer === "true";
+    client.isHotBuyer = markHot;
+    await client.save();
+    const populated = await Client.findById(client._id).populate("assignedAgent", "name email role");
+    return res.json(populated);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/:id/suggested-properties", protect, async (req, res, next) => {
   try {
     const client = await Client.findById(req.params.id);

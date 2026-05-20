@@ -298,6 +298,53 @@ router.post("/:id/images", protect, uploadMemory.array("images", 10), async (req
   }
 });
 
+router.delete("/:id/images", protect, async (req, res, next) => {
+  try {
+    const imageUrl = req.query.url || req.body?.url;
+    if (!imageUrl) return res.status(400).json({ message: "Image URL is required" });
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
+
+    const before = property.images.length;
+    property.images = property.images.filter((url) => url !== imageUrl);
+    if (property.images.length === before) {
+      return res.status(404).json({ message: "Image not found on this property" });
+    }
+    await property.save();
+    return res.json({ images: property.images });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/:id/documents/:docIndex", protect, async (req, res, next) => {
+  try {
+    const index = Number(req.params.docIndex);
+    if (!Number.isInteger(index) || index < 0) {
+      return res.status(400).json({ message: "Invalid document index" });
+    }
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ message: "Property not found" });
+    if (!isAdmin(req.user) && !isAssignedAgent(property, req.user)) {
+      return res.status(403).json({ message: "Access denied: assigned agent only" });
+    }
+    if (index >= property.documents.length) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    property.documents.splice(index, 1);
+    await property.save();
+    return res.json({ documents: property.documents });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/:id/documents", protect, uploadMemory.single("document"), async (req, res, next) => {
   try {
     const property = await Property.findById(req.params.id);
