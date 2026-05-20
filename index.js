@@ -40,11 +40,16 @@ const startServer = async () => {
   if (!process.env.MONGO_URI) {
     throw new Error("MONGO_URI is missing in .env");
   }
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is missing in .env");
+  }
 
-  await mongoose.connect(process.env.MONGO_URI);
+  await mongoose.connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 15000,
+  });
   console.log("Connected to MongoDB Atlas");
 
-  app.listen(PORT, () => {
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server listening on port ${PORT}`);
   });
 };
