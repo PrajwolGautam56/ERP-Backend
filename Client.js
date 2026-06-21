@@ -27,6 +27,10 @@ const clientSchema = new mongoose.Schema(
     location_preference: { type: String, default: "" },
     notes: { type: String, default: "" },
     remarks: { type: String, default: "" },
+    followUpDate: { type: Date },
+    reminderDate: { type: Date },
+    lastCallDate: { type: Date },
+    lastTalkRemark: { type: String, default: "" },
     isHotBuyer: { type: Boolean, default: false },
     interestedProperties: [{ type: mongoose.Schema.Types.ObjectId, ref: "Property" }],
     status: {

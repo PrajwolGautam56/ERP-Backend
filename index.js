@@ -9,6 +9,7 @@ const authRoutes = require("./authRoutes");
 const propertyRoutes = require("./propertyRoutes");
 const clientRoutes = require("./clientRoutes");
 const userRoutes = require("./userRoutes");
+const taskRoutes = require("./taskRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -28,6 +29,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/properties", propertyRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/tasks", taskRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
